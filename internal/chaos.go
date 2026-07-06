@@ -3,15 +3,15 @@ package chaos
 import (
 	"fmt"
 
-	"github.com/heliannuuthus/aegis-go/guard"
 	"gorm.io/gorm"
 
-	"github.com/heliannuuthus/helios/chaos/config"
-	"github.com/heliannuuthus/helios/chaos/internal/mail"
-	"github.com/heliannuuthus/helios/chaos/internal/storage"
-	"github.com/heliannuuthus/helios/chaos/internal/template"
-	"github.com/heliannuuthus/helios/chaos/models"
-	"github.com/heliannuuthus/helios/pkg/logger"
+	"github.com/heliannuuthus/chaos/config"
+	"github.com/heliannuuthus/chaos/internal/mail"
+	"github.com/heliannuuthus/chaos/internal/models"
+	"github.com/heliannuuthus/chaos/internal/storage"
+	"github.com/heliannuuthus/chaos/internal/template"
+	"github.com/heliannuuthus/pkg/aegis/guard"
+	"github.com/heliannuuthus/pkg/logger"
 )
 
 // Chaos 模块实例
