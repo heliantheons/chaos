@@ -15,8 +15,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
 
-	chaosconfig "github.com/heliannuuthus/chaos/config"
-	"github.com/heliannuuthus/common/logger"
+	chaosconfig "github.com/heliantheon/chaos/config"
+	"github.com/heliantheon/common/logger"
 )
 
 // Service 存储服务

@@ -6,13 +6,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/heliannuuthus/aegis-go/guard"
-	reqr "github.com/heliannuuthus/aegis-go/guard/requirement"
-	"github.com/heliannuuthus/aegis-go/utilities/relation"
-	"github.com/heliannuuthus/chaos/internal/mail"
-	"github.com/heliannuuthus/chaos/internal/models"
-	"github.com/heliannuuthus/chaos/internal/storage"
-	"github.com/heliannuuthus/chaos/internal/template"
+	"github.com/heliantheon/aegis-go/guard"
+	reqr "github.com/heliantheon/aegis-go/guard/requirement"
+	"github.com/heliantheon/aegis-go/utilities/relation"
+	"github.com/heliantheon/chaos/internal/mail"
+	"github.com/heliantheon/chaos/internal/models"
+	"github.com/heliantheon/chaos/internal/storage"
+	"github.com/heliantheon/chaos/internal/template"
 )
 
 // Handler Chaos API Handler
