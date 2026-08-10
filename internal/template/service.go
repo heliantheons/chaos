@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/heliannuuthus/chaos/internal/models"
-	"github.com/heliannuuthus/pkg/logger"
+	"github.com/heliannuuthus/common/logger"
 )
 
 // Service 模板服务
