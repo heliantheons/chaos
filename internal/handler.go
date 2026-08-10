@@ -35,7 +35,7 @@ func NewHandler(g *guard.Gin, audience string, mailSvc *mail.Service, templateSv
 	}
 }
 
-// SendMail 发送邮件 POST /chaos/mail
+// SendMail 发送邮件 POST /api/mail
 func (h *Handler) SendMail(c *gin.Context) {
 	var req mail.SendRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -51,7 +51,7 @@ func (h *Handler) SendMail(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "邮件发送成功"})
 }
 
-// CreateTemplate 创建模板 POST /chaos/templates
+// CreateTemplate 创建模板 POST /api/templates
 func (h *Handler) CreateTemplate(c *gin.Context) {
 	var req template.CreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -68,7 +68,7 @@ func (h *Handler) CreateTemplate(c *gin.Context) {
 	c.JSON(http.StatusCreated, tpl)
 }
 
-// GetTemplate 获取模板 GET /chaos/templates/:id
+// GetTemplate 获取模板 GET /api/templates/:id
 func (h *Handler) GetTemplate(c *gin.Context) {
 	templateID := c.Param("id")
 
@@ -81,7 +81,7 @@ func (h *Handler) GetTemplate(c *gin.Context) {
 	c.JSON(http.StatusOK, tpl)
 }
 
-// ListTemplates 列出模板 GET /chaos/templates
+// ListTemplates 列出模板 GET /api/templates
 func (h *Handler) ListTemplates(c *gin.Context) {
 	var serviceID *string
 	if sid := c.Query("service_id"); sid != "" {
@@ -97,7 +97,7 @@ func (h *Handler) ListTemplates(c *gin.Context) {
 	c.JSON(http.StatusOK, templates)
 }
 
-// UpdateTemplate 更新模板 PATCH /chaos/templates/:id
+// UpdateTemplate 更新模板 PATCH /api/templates/:id
 func (h *Handler) UpdateTemplate(c *gin.Context) {
 	templateID := c.Param("id")
 
@@ -115,7 +115,7 @@ func (h *Handler) UpdateTemplate(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "模板更新成功"})
 }
 
-// DeleteTemplate 删除模板 DELETE /chaos/templates/:id
+// DeleteTemplate 删除模板 DELETE /api/templates/:id
 func (h *Handler) DeleteTemplate(c *gin.Context) {
 	templateID := c.Param("id")
 
@@ -127,7 +127,7 @@ func (h *Handler) DeleteTemplate(c *gin.Context) {
 	c.JSON(http.StatusNoContent, nil)
 }
 
-// RenderTemplate 预览渲染模板 POST /chaos/templates/:id/render
+// RenderTemplate 预览渲染模板 POST /api/templates/:id/render
 func (h *Handler) RenderTemplate(c *gin.Context) {
 	templateID := c.Param("id")
 
@@ -151,7 +151,7 @@ func (h *Handler) RenderTemplate(c *gin.Context) {
 	})
 }
 
-// PresignUpload 生成 Presigned URL POST /chaos/presign
+// PresignUpload 生成 Presigned URL POST /api/presign
 func (h *Handler) PresignUpload(c *gin.Context) {
 	var req storage.PresignRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -172,12 +172,12 @@ func (h *Handler) PresignUpload(c *gin.Context) {
 func (h *Handler) RegisterRoutes(r gin.IRouter) {
 	svc := "service:" + h.audience
 
-	chaos := r.Group("/chaos")
-	chaos.Use(h.guard.Require())
+	api := r.Group("/api")
+	api.Use(h.guard.Require())
 	{
-		chaos.POST("/mail", h.SendMail)
+		api.POST("/mail", h.SendMail)
 
-		templates := chaos.Group("/templates")
+		templates := api.Group("/templates")
 		templates.Use(h.guard.Require(reqr.Relation(relation.Qualify("admin", svc))))
 		{
 			templates.POST("", h.CreateTemplate)
@@ -188,7 +188,7 @@ func (h *Handler) RegisterRoutes(r gin.IRouter) {
 			templates.POST("/:id/render", h.RenderTemplate)
 		}
 
-		chaos.POST("/presign", h.guard.Require(reqr.User(), reqr.Relation(relation.Qualify("editor", svc))), h.PresignUpload)
+		api.POST("/presign", h.guard.Require(reqr.User(), reqr.Relation(relation.Qualify("editor", svc))), h.PresignUpload)
 	}
 }
 
