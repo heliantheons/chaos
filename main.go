@@ -5,11 +5,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/heliannuuthus/aegis-go/guard"
 	chaosconfig "github.com/heliannuuthus/chaos/config"
 	chaos "github.com/heliannuuthus/chaos/internal"
-	"github.com/heliannuuthus/pkg/aegis/guard"
-	"github.com/heliannuuthus/pkg/config"
-	"github.com/heliannuuthus/pkg/logger"
+	"github.com/heliannuuthus/common/config"
+	"github.com/heliannuuthus/common/logger"
 )
 
 func main() {

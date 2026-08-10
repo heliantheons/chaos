@@ -1,0 +1,200 @@
+# golangci-lint v2 配置
+version: "2"
+
+linters:
+  default: standard
+
+  enable:
+    # 代码质量
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    # 代码风格
+    - misspell
+    - revive
+    # 复杂度
+    - gocyclo
+    - gocognit
+    # 性能
+    - prealloc
+    - unconvert
+    # 错误处理
+    - errorlint
+    - errname
+    # 安全
+    - gosec
+    # 函数排序
+    - funcorder
+    # 其他
+    - unparam
+    - nakedret
+    - noctx
+    - copyloopvar
+
+  disable:
+    - funlen
+    - lll
+    - dupl
+    - gocritic
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+
+    gocyclo:
+      min-complexity: 15
+
+    gocognit:
+      min-complexity: 20
+
+    revive:
+      severity: warning
+      confidence: 0.8
+      rules:
+        - name: var-naming
+        - name: package-comments
+        - name: error-return
+        - name: error-naming
+        - name: errorf
+        - name: if-return
+        - name: increment-decrement
+        - name: var-declaration
+        - name: range
+        - name: range-val-in-closure
+        - name: waitgroup-by-value
+        - name: atomic
+        - name: empty-block
+
+    gosec:
+      severity: medium
+      confidence: medium
+      excludes:
+        - G104  # 与 errcheck 重复
+        - G115  # 已有 safeUint32/safeInt32 等边界检查，gosec 不识别 control-flow guard
+        - G117  # struct 字段名匹配 secret 模式（OAuth2/API DTO 规范字段名）
+        - G704  # SSRF false positive（项目中 URL 均为硬编码常量域名，非用户可控）
+
+    misspell:
+      locale: US
+
+    staticcheck:
+      checks: ["all"]
+
+  exclusions:
+    generated: lax
+
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+
+    paths:
+      - vendor
+      - third_party$
+      - builtin$
+      - examples$
+      - '.*\.pb\.go$'
+      - '.*\.gen\.go$'
+
+    rules:
+      # 测试文件放宽复杂度和参数检查
+      - path: _test\.go$
+        linters:
+          - gocyclo
+          - gocognit
+          - funlen
+          - unparam
+
+      # 已弃用 API 调用（按需保留）
+      - text: 'SA1019:'
+        linters:
+          - staticcheck
+
+      # 内部包弱加密原语
+      - path: internal/
+        text: "weak cryptographic primitive"
+        linters:
+          - gosec
+
+      # defer Close 的 error 已在代码中显式处理
+      - text: 'Error return value of `.*\.Close` is not checked'
+        linters:
+          - errcheck
+
+      # json.Marshal/Unmarshal 误报
+      - text: 'Error return value of `json\.(Marshal|Unmarshal)` is not checked'
+        linters:
+          - errcheck
+
+      # rand 误报
+      - text: 'Error return value of `rand\.(Read|Int)` is not checked'
+        linters:
+          - errcheck
+
+      # 与标准库同名的包（重命名影响面过大）
+      - text: "var-naming: avoid package names"
+        linters:
+          - revive
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+    - gci
+
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/heliannuuthus/proto
+        - github.com/heliannuuthus/common
+        - github.com/heliannuuthus/hermes
+        - github.com/heliannuuthus/aegis
+        - github.com/heliannuuthus/ambrosia
+        - github.com/heliannuuthus/chaos
+
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/heliannuuthus/proto,github.com/heliannuuthus/common,github.com/heliannuuthus/aegis-go,github.com/heliannuuthus/hermes,github.com/heliannuuthus/aegis,github.com/heliannuuthus/ambrosia,github.com/heliannuuthus/chaos)
+      custom-order: true
+
+  exclusions:
+    paths:
+      - vendor
+      - third_party$
+      - builtin$
+      - examples$
+      - '.*\.pb\.go$'
+      - '.*\.gen\.go$'
+
+output:
+  show-stats: true
+  sort-order:
+    - file
+    - linter
+  formats:
+    text:
+      path: stdout
+      colors: true
+      print-issued-lines: true
+      print-linter-name: true
+
+issues:
+  max-issues-per-linter: 50
+  max-same-issues: 3
+  uniq-by-line: true
+
+run:
+  timeout: 5m
+  relative-path-mode: cfg
+  tests: true
+  modules-download-mode: readonly
+  concurrency: 0
+  allow-parallel-runners: false
+
+severity:
+  default: warning

@@ -6,8 +6,8 @@ import (
 
 	"github.com/heliannuuthus/chaos/config"
 	"github.com/heliannuuthus/chaos/internal/template"
-	"github.com/heliannuuthus/pkg/logger"
-	pkgmail "github.com/heliannuuthus/pkg/mail"
+	"github.com/heliannuuthus/common/logger"
+	pkgmail "github.com/heliannuuthus/common/mail"
 )
 
 // Service 邮件服务

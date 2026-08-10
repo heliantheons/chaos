@@ -16,7 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	chaosconfig "github.com/heliannuuthus/chaos/config"
-	"github.com/heliannuuthus/pkg/logger"
+	"github.com/heliannuuthus/common/logger"
 )
 
 // Service 存储服务
