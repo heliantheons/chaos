@@ -7,12 +7,12 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/heliannuuthus/aegis-go/guard"
-	"github.com/heliannuuthus/chaos/config"
-	"github.com/heliannuuthus/chaos/internal/mail"
-	"github.com/heliannuuthus/chaos/internal/models"
-	"github.com/heliannuuthus/chaos/internal/storage"
-	"github.com/heliannuuthus/chaos/internal/template"
+	"github.com/heliantheon/aegis-go/guard"
+	"github.com/heliantheon/chaos/config"
+	"github.com/heliantheon/chaos/internal/mail"
+	"github.com/heliantheon/chaos/internal/models"
+	"github.com/heliantheon/chaos/internal/storage"
+	"github.com/heliantheon/chaos/internal/template"
 )
 
 // Chaos 模块实例

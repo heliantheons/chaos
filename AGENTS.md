@@ -4,8 +4,8 @@ This repository owns the Helios delivery and object-storage service.
 
 ## Boundaries
 
-- Reusable mail client primitives belong to `heliannuuthus/common`; templates and delivery policy stay here.
-- Reusable authentication guards belong to `heliannuuthus/aegis-go`.
+- Reusable mail client primitives belong to `heliantheon/common`; templates and delivery policy stay here.
+- Reusable authentication guards belong to `heliantheon/aegis-go`.
 - Keep storage-provider details behind the service layer.
 
 ## Commands

@@ -9,8 +9,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/heliannuuthus/chaos/internal/models"
-	"github.com/heliannuuthus/common/logger"
+	"github.com/heliantheon/chaos/internal/models"
+	"github.com/heliantheon/common/logger"
 )
 
 // Service 模板服务

@@ -10,9 +10,9 @@ import (
 
 	"gorm.io/gorm"
 
-	baseconfig "github.com/heliannuuthus/common/config"
-	pkgdb "github.com/heliannuuthus/common/database"
-	"github.com/heliannuuthus/common/logger"
+	baseconfig "github.com/heliantheon/common/config"
+	pkgdb "github.com/heliantheon/common/database"
+	"github.com/heliantheon/common/logger"
 )
 
 var (

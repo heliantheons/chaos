@@ -148,18 +148,18 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/heliannuuthus/proto
-        - github.com/heliannuuthus/common
-        - github.com/heliannuuthus/hermes
-        - github.com/heliannuuthus/aegis
-        - github.com/heliannuuthus/ambrosia
-        - github.com/heliannuuthus/chaos
+        - github.com/heliantheon/proto
+        - github.com/heliantheon/common
+        - github.com/heliantheon/hermes
+        - github.com/heliantheon/aegis
+        - github.com/heliantheon/ambrosia
+        - github.com/heliantheon/chaos
 
     gci:
       sections:
         - standard
         - default
-        - prefix(github.com/heliannuuthus/proto,github.com/heliannuuthus/common,github.com/heliannuuthus/aegis-go,github.com/heliannuuthus/hermes,github.com/heliannuuthus/aegis,github.com/heliannuuthus/ambrosia,github.com/heliannuuthus/chaos)
+        - prefix(github.com/heliantheon/proto,github.com/heliantheon/common,github.com/heliantheon/aegis-go,github.com/heliantheon/hermes,github.com/heliantheon/aegis,github.com/heliantheon/ambrosia,github.com/heliantheon/chaos)
       custom-order: true
 
   exclusions:
