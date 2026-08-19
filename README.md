@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/brand/mark.svg" width="112" alt="Chaos logo" />
+  <img src="./assets/brand/hero-ice.png" width="256" alt="Chaos emblem suspended in a clear ice block" />
 </p>
 
 <h1 align="center">Chaos</h1>
