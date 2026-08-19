@@ -4,7 +4,7 @@ Chaos provides shared delivery infrastructure for Helios: email templates and se
 
 ## Run locally
 
-Chaos needs MySQL and an Aegis service key. SMTP and R2-compatible storage credentials are required for the matching features.
+Chaos needs PostgreSQL and an Aegis service key. SMTP and R2-compatible storage credentials are required for the matching features.
 
 ```bash
 cp example.toml config.toml
