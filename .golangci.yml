@@ -148,7 +148,6 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/heliantheon/proto
         - github.com/heliantheon/common
         - github.com/heliantheon/hermes
         - github.com/heliantheon/aegis
@@ -159,7 +158,7 @@ formatters:
       sections:
         - standard
         - default
-        - prefix(github.com/heliantheon/proto,github.com/heliantheon/common,github.com/heliantheon/aegis-go,github.com/heliantheon/hermes,github.com/heliantheon/aegis,github.com/heliantheon/ambrosia,github.com/heliantheon/chaos)
+        - prefix(github.com/heliantheon/common,github.com/heliantheon/aegis-go,github.com/heliantheon/hermes,github.com/heliantheon/aegis,github.com/heliantheon/ambrosia,github.com/heliantheon/chaos)
       custom-order: true
 
   exclusions:
