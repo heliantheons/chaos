@@ -1,6 +1,6 @@
 # Chaos brand assets
 
-The Chaos mark belongs to the shared Heliantheon visual family: geometric construction, rounded strokes, strong negative space, and a single product accent.
+The Chaos mark follows a shared visual language: geometric construction, rounded strokes, strong negative space, and a single product accent.
 
 | File | Purpose |
 | --- | --- |
