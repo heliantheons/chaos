@@ -1,32 +1,25 @@
 <p align="center">
-  <img src="./assets/brand/hero-ice.png" width="256" alt="Chaos emblem suspended in a clear ice block" />
+  <img src="./assets/brand/hero-ice.png" width="256" alt="Chaos logo" />
 </p>
 
 <h1 align="center">Chaos</h1>
 
-<p align="center">
-  <strong>Delivery and object-storage infrastructure for Helios.</strong><br />
-  Helios 的消息投递与对象存储服务。
-</p>
+Chaos 管的是 Helios 的投递和对象存储：邮件模板、邮件发送、S3 兼容的对象存储操作，都在这一处收敛。接口由 Aegis 保护，各家供应商的细节被挡在服务层后面，调用方看到的是统一的抽象。
 
-## Overview / 项目简介
+Chaos centralizes Helios' delivery and object storage — email templates, sending, and S3-compatible file operations. APIs are protected by Aegis, and provider-specific details stay behind the service layer.
 
-Chaos centralizes email templates and delivery together with S3-compatible object-storage operations. Its APIs are protected by Aegis, while provider-specific details stay behind the service layer.
+## 本地运行
 
-Chaos 集中处理邮件模板、消息投递和兼容 S3 的对象存储操作，通过 Aegis 保护 API，并将具体供应商实现隔离在服务层之后。
-
-## Run locally
-
-Chaos needs PostgreSQL and an Aegis service key. SMTP and R2-compatible storage credentials are required for the matching features.
+需要 PostgreSQL，以及一个 Aegis 服务密钥。SMTP 和 R2 兼容存储的凭据只有用到对应功能时才需要。
 
 ```bash
 cp example.toml config.toml
 make run
 ```
 
-The database schema is under [`sql/`](sql/).
+数据库 schema 在 [`sql/`](sql/) 目录下。
 
-## Development
+## 开发
 
 ```bash
 make test
