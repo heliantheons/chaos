@@ -13,6 +13,7 @@ import (
 	"github.com/heliantheon/chaos/internal/models"
 	"github.com/heliantheon/chaos/internal/storage"
 	"github.com/heliantheon/chaos/internal/template"
+	"github.com/heliantheon/common/logger"
 )
 
 // Chaos 模块实例
@@ -41,20 +42,16 @@ func New(db *gorm.DB) (*Chaos, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := mailSvc.Verify(ctx); err != nil {
-		mailSvc.Close()
-		return nil, fmt.Errorf("验证邮件服务失败: %w", err)
-	}
+	verifyOptionalDependency(ctx, "[Chaos] 邮件服务", mailSvc.Verify)
 
 	storageSvc, err := storage.NewService()
 	if err != nil {
 		mailSvc.Close()
 		return nil, fmt.Errorf("创建存储服务失败: %w", err)
 	}
-	if err := storageSvc.Verify(ctx); err != nil {
-		mailSvc.Close()
-		return nil, fmt.Errorf("验证存储服务失败: %w", err)
-	}
+	storageCtx, storageCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer storageCancel()
+	verifyOptionalDependency(storageCtx, "[Chaos] 存储服务", storageSvc.Verify)
 
 	aud := config.GetAegisAudience()
 	g, err := guard.NewGin(aud)
@@ -70,6 +67,14 @@ func New(db *gorm.DB) (*Chaos, error) {
 		templateService: templateSvc,
 		storageService:  storageSvc,
 	}, nil
+}
+
+func verifyOptionalDependency(ctx context.Context, name string, verify func(context.Context) error) bool {
+	if err := verify(ctx); err != nil {
+		logger.Warnf("%s 预检失败，相关能力将保持降级: %v", name, err)
+		return false
+	}
+	return true
 }
 
 // autoMigrate 自动迁移数据库
