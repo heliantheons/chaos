@@ -24,7 +24,7 @@ jobs:
       ENTRANCE: './'
 
   containerize:
-    if: github.event_name == 'push'
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: [ci]
     uses: heliannuuthus/hephaestus/.github/workflows/ci-containerize.yml@main
     permissions:
@@ -34,3 +34,16 @@ jobs:
       workdir: './'
       version: '${{ needs.ci.outputs.version }}'
       targets: 'build/'
+      release-tags: true
+
+  promote:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [ci, containerize]
+    uses: heliannuuthus/hephaestus/.github/workflows/ci-promote-gitops.yml@main
+    permissions:
+      contents: read
+    with:
+      version: '${{ needs.ci.outputs.version }}'
+      updates: 'chaos/overlay/release.yaml=ghcr.io/heliantheon/chaos'
+    secrets:
+      gitops_token: '${{ secrets.GITOPS_TOKEN }}'
