@@ -27,6 +27,18 @@ password = ""
 from = ""
 from-name = "Heliantheon"
 
+[nats]
+urls = ["nats://nats.messaging.svc.cluster.local:4222"]
+token = ""
+stream = "CHAOS_MAIL"
+subject = "events.chaos.mail.delivery.requested.v1"
+consumer = "chaos-mail-worker-v1"
+dlq-subject = "dlq.chaos.mail.delivery.v1"
+
+[loki]
+url = "http://loki-gateway.observability.svc.cluster.local"
+namespace = "heliantheon-system"
+
 [r2]
 account-id = ""
 access-key-id = ""
