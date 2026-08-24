@@ -5,24 +5,26 @@ import (
 	"context"
 	"fmt"
 	"html/template"
+	"log/slog"
 	"sync"
 
 	"gorm.io/gorm"
 
 	"github.com/heliantheon/chaos/internal/models"
-	"github.com/heliantheon/common/logger"
 )
 
 // Service 模板服务
 type Service struct {
 	db        *gorm.DB
 	templates sync.Map // template_id -> *template.Template (缓存)
+	logger    *slog.Logger
 }
 
 // NewService 创建模板服务
-func NewService(db *gorm.DB) *Service {
+func NewService(db *gorm.DB, logger *slog.Logger) *Service {
 	return &Service{
-		db: db,
+		db:     db,
+		logger: logger,
 	}
 }
 
@@ -152,7 +154,7 @@ func (s *Service) Render(ctx context.Context, templateID string, data map[string
 
 	var subjectBuf bytes.Buffer
 	if err := subjectTpl.Execute(&subjectBuf, data); err != nil {
-		logger.Warnf("[Template] 渲染主题失败: %v", err)
+		s.logger.WarnContext(ctx, "template subject render failed", "template_id", templateID, "error", err)
 		return tpl.Subject, buf.String(), nil
 	}
 

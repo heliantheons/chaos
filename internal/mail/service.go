@@ -3,23 +3,32 @@ package mail
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/heliantheon/chaos/config"
 	"github.com/heliantheon/chaos/internal/template"
-	"github.com/heliantheon/common/logger"
+	"github.com/heliantheon/common/eventbus"
 	pkgmail "github.com/heliantheon/common/mail"
 )
 
-// Service 邮件服务
+// Service queues mail requests and performs SMTP delivery in the worker.
 type Service struct {
 	client          *pkgmail.Client
 	templateService *template.Service
+	bus             *eventbus.Bus
+	logger          *slog.Logger
 	from            string
 	fromName        string
 }
 
-// NewService 创建邮件服务
-func NewService(templateService *template.Service) (*Service, error) {
+// NewService creates the Chaos-owned mail service.
+func NewService(templateService *template.Service, bus *eventbus.Bus, logger *slog.Logger) (*Service, error) {
+	if templateService == nil || bus == nil || logger == nil {
+		return nil, fmt.Errorf("mail: template service, event bus, and logger are required")
+	}
 	client, err := pkgmail.NewClient(&pkgmail.ClientConfig{
 		Host:     config.GetSMTPHost(),
 		Port:     config.GetSMTPPort(),
@@ -28,91 +37,112 @@ func NewService(templateService *template.Service) (*Service, error) {
 		UseSSL:   config.GetSMTPPort() == 465,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("创建邮件客户端失败: %w", err)
+		return nil, fmt.Errorf("create SMTP client: %w", err)
 	}
 
 	return &Service{
 		client:          client,
 		templateService: templateService,
+		bus:             bus,
+		logger:          logger,
 		from:            config.GetSMTPFrom(),
 		fromName:        config.GetSMTPFromName(),
 	}, nil
 }
 
-// Send 发送邮件
-func (s *Service) Send(ctx context.Context, req *SendRequest) error {
-	subject, body, err := s.templateService.Render(ctx, req.TemplateID, req.Data)
-	if err != nil {
-		return fmt.Errorf("渲染模板失败: %w", err)
+// Enqueue publishes a private Chaos mail event and waits for JetStream PubAck.
+func (s *Service) Enqueue(ctx context.Context, req SendRequest) (string, error) {
+	deliveryID := uuid.NewString()
+	variables := req.Variables
+	if variables == nil {
+		variables = req.Data
+	}
+	expiresAt := req.ExpiresAt
+	if expiresAt.IsZero() {
+		expiresAt = time.Now().Add(24 * time.Hour)
+	}
+	event := deliveryRequested{
+		DeliveryID: deliveryID,
+		To:         req.To,
+		Subject:    req.Subject,
+		TemplateID: req.TemplateID,
+		Variables:  variables,
+		ExpiresAt:  expiresAt.UTC(),
+	}
+	if _, err := s.bus.Publish(ctx, config.GetNATSSubject(), eventbus.Event{
+		ID:      deliveryID,
+		Type:    deliveryRequestedEventType,
+		Subject: deliveryID,
+		Data:    event,
+	}); err != nil {
+		return "", fmt.Errorf("queue mail delivery: %w", err)
 	}
 
-	if req.Subject != "" {
-		subject = req.Subject
+	s.logger.InfoContext(ctx, "mail delivery queued",
+		"delivery_id", deliveryID,
+		"template_id", req.TemplateID,
+	)
+	return deliveryID, nil
+}
+
+// HandleEvent decodes and delivers one private Chaos mail event.
+func (s *Service) HandleEvent(ctx context.Context, message eventbus.Message) error {
+	if message.Type != deliveryRequestedEventType {
+		return eventbus.Permanent(fmt.Errorf("unsupported event type %q", message.Type))
+	}
+	var delivery deliveryRequested
+	if err := message.Decode(&delivery); err != nil {
+		return eventbus.Permanent(err)
+	}
+	if delivery.DeliveryID == "" || delivery.To == "" || delivery.TemplateID == "" || delivery.ExpiresAt.IsZero() {
+		return eventbus.Permanent(fmt.Errorf("invalid mail delivery event"))
+	}
+	if !time.Now().Before(delivery.ExpiresAt) {
+		s.logger.WarnContext(ctx, "mail delivery expired",
+			"delivery_id", delivery.DeliveryID,
+			"template_id", delivery.TemplateID,
+		)
+		return nil
+	}
+	return s.deliver(ctx, delivery)
+}
+
+// Verify validates SMTP connectivity without sending mail.
+func (s *Service) Verify(ctx context.Context) error { return s.client.Verify(ctx) }
+
+// Close closes the SMTP pool.
+func (s *Service) Close() { s.client.Close() }
+
+func (s *Service) deliver(ctx context.Context, delivery deliveryRequested) error {
+	subject, body, err := s.templateService.Render(ctx, delivery.TemplateID, delivery.Variables)
+	if err != nil {
+		return fmt.Errorf("render mail template: %w", err)
+	}
+	if delivery.Subject != "" {
+		subject = delivery.Subject
 	}
 
 	from := s.from
 	if s.fromName != "" {
 		from = fmt.Sprintf("%s <%s>", s.fromName, s.from)
 	}
-
-	msg := pkgmail.NewMessage().
+	message := pkgmail.NewMessage().
 		SetFrom(from).
-		AddTo(req.To).
+		AddTo(delivery.To).
 		SetSubject(subject).
 		SetHTML(body)
 
-	if err := s.client.Send(ctx, msg); err != nil {
-		logger.Errorf("[Mail] 发送邮件失败 - To: %s, Subject: %s, Error: %v", req.To, subject, err)
-		return fmt.Errorf("发送邮件失败: %w", err)
+	if err := s.client.Send(ctx, message); err != nil {
+		s.logger.ErrorContext(ctx, "mail delivery failed",
+			"delivery_id", delivery.DeliveryID,
+			"template_id", delivery.TemplateID,
+			"error", err,
+		)
+		return fmt.Errorf("send mail: %w", err)
 	}
-
-	logger.Infof("[Mail] 发送邮件成功 - To: %s, Subject: %s", req.To, subject)
+	s.logger.InfoContext(ctx, "mail delivery completed",
+		"delivery_id", delivery.DeliveryID,
+		"template_id", delivery.TemplateID,
+	)
 	return nil
-}
-
-// SendCode 发送验证码邮件（按 scene 查找模板）
-// scene 作为 templateID 查询 DB 模板，找不到则降级为纯文本
-func (s *Service) SendCode(ctx context.Context, email, code, scene string) error {
-	err := s.Send(ctx, &SendRequest{
-		To:         email,
-		TemplateID: scene,
-		Data:       map[string]any{"code": code},
-	})
-	if err != nil {
-		logger.Warnf("[Mail] 模板 %s 不可用，降级为原始邮件: %v", scene, err)
-		return s.SendRaw(ctx, email, "您的验证码", fmt.Sprintf("您的验证码是：%s，5 分钟内有效。", code))
-	}
-	return nil
-}
-
-// SendRaw 发送原始邮件（不使用模板）
-func (s *Service) SendRaw(ctx context.Context, to, subject, body string) error {
-	from := s.from
-	if s.fromName != "" {
-		from = fmt.Sprintf("%s <%s>", s.fromName, s.from)
-	}
-
-	msg := pkgmail.NewMessage().
-		SetFrom(from).
-		AddTo(to).
-		SetSubject(subject).
-		SetHTML(body)
-
-	if err := s.client.Send(ctx, msg); err != nil {
-		logger.Errorf("[Mail] 发送原始邮件失败 - To: %s, Subject: %s, Error: %v", to, subject, err)
-		return fmt.Errorf("发送邮件失败: %w", err)
-	}
-
-	logger.Infof("[Mail] 发送原始邮件成功 - To: %s, Subject: %s", to, subject)
-	return nil
-}
-
-// Verify 验证 SMTP 连接
-func (s *Service) Verify(ctx context.Context) error {
-	return s.client.Verify(ctx)
-}
-
-// Close 关闭连接
-func (s *Service) Close() {
-	s.client.Close()
 }

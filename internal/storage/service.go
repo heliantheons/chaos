@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"path/filepath"
 	"strings"
@@ -16,7 +17,6 @@ import (
 	"github.com/google/uuid"
 
 	chaosconfig "github.com/heliantheon/chaos/config"
-	"github.com/heliantheon/common/logger"
 )
 
 // Service 存储服务
@@ -25,10 +25,14 @@ type Service struct {
 	presignClient *s3.PresignClient
 	bucket        string
 	publicURL     string
+	logger        *slog.Logger
 }
 
 // NewService 创建存储服务
-func NewService() (*Service, error) {
+func NewService(logger *slog.Logger) (*Service, error) {
+	if logger == nil {
+		return nil, fmt.Errorf("logger is required")
+	}
 	endpoint := chaosconfig.GetCloudflareR2Endpoint()
 	required := map[string]string{
 		"r2.account-id":        endpoint,
@@ -64,6 +68,7 @@ func NewService() (*Service, error) {
 		presignClient: s3.NewPresignClient(client),
 		bucket:        chaosconfig.GetCloudflareR2Bucket(),
 		publicURL:     chaosconfig.GetCloudflareR2PublicURL(),
+		logger:        logger,
 	}, nil
 }
 
@@ -85,7 +90,7 @@ func (s *Service) Upload(ctx context.Context, file *multipart.FileHeader, path s
 	}
 	defer func() {
 		if err := src.Close(); err != nil {
-			logger.Warnf("failed to close uploaded file: %v", err)
+			s.logger.WarnContext(ctx, "close uploaded file failed", "error", err)
 		}
 	}()
 
@@ -116,7 +121,7 @@ func (s *Service) Upload(ctx context.Context, file *multipart.FileHeader, path s
 
 	publicURL := fmt.Sprintf("%s/%s", strings.TrimSuffix(s.publicURL, "/"), storageKey)
 
-	logger.Infof("[Storage] 文件上传成功 - Key: %s", storageKey)
+	s.logger.InfoContext(ctx, "storage upload completed", "storage_key", storageKey)
 	return &UploadResult{
 		Key:         storageKey,
 		FileName:    file.Filename,
@@ -143,7 +148,7 @@ func (s *Service) GeneratePresignedURL(ctx context.Context, req *PresignRequest)
 
 	publicURL := fmt.Sprintf("%s/%s", strings.TrimSuffix(s.publicURL, "/"), storageKey)
 
-	logger.Infof("[Storage] Presigned URL generated - Key: %s, Expires: %v", storageKey, presignExpiry)
+	s.logger.InfoContext(ctx, "storage presigned URL generated", "storage_key", storageKey, "expires_in", presignExpiry)
 	return &PresignResponse{
 		UploadURL: presigned.URL,
 		Key:       storageKey,
@@ -192,7 +197,7 @@ func (s *Service) UploadFromReader(ctx context.Context, reader io.Reader, filena
 
 	publicURL := fmt.Sprintf("%s/%s", strings.TrimSuffix(s.publicURL, "/"), storageKey)
 
-	logger.Infof("[Storage] 文件上传成功 - Key: %s", storageKey)
+	s.logger.InfoContext(ctx, "storage upload completed", "storage_key", storageKey)
 	return &UploadResult{
 		Key:         storageKey,
 		FileName:    filename,

@@ -1,7 +1,15 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -9,54 +17,116 @@ import (
 	chaosconfig "github.com/heliantheon/chaos/config"
 	chaos "github.com/heliantheon/chaos/internal"
 	"github.com/heliantheon/common/config"
-	"github.com/heliantheon/common/logger"
+	commonlog "github.com/heliantheon/common/log"
+	"github.com/heliantheon/common/metric"
 )
 
 func main() {
 	config.LoadChaos()
-	logger.InitWithConfig(logger.Config{
-		Format: config.GetLogFormat(),
-		Level:  config.GetLogLevel(),
-		Debug:  config.IsDebug(),
+	logger, err := commonlog.New(commonlog.Config{
+		Service:     "chaos",
+		Version:     config.GetAppVersion(),
+		Environment: chaosconfig.Cfg().GetString("app.environment"),
+		Level:       config.GetLogLevel(),
 	})
-	defer logger.Sync()
-	if err := chaosconfig.Validate(); err != nil {
-		logger.Fatalf("Chaos 配置校验失败: %v", err)
-	}
-	initTokenManager()
-
-	db := chaosconfig.InitDB()
-	app, err := chaos.New(db)
 	if err != nil {
-		logger.Fatalf("初始化 chaos 失败: %v", err)
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := run(logger); err != nil {
+		logger.Error("chaos stopped", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run(logger *slog.Logger) error {
+	if err := chaosconfig.Validate(); err != nil {
+		return fmt.Errorf("validate Chaos configuration: %w", err)
+	}
+	if err := initTokenManager(); err != nil {
+		return err
+	}
+	db, err := chaosconfig.InitDB(logger)
+	if err != nil {
+		return err
+	}
+	metrics, err := metric.New(metric.Config{
+		Service:     "chaos",
+		Version:     config.GetAppVersion(),
+		Environment: chaosconfig.Cfg().GetString("app.environment"),
+	})
+	if err != nil {
+		return fmt.Errorf("initialize metrics: %w", err)
+	}
+
+	workerCtx, cancelWorkers := context.WithCancel(context.Background())
+	defer cancelWorkers()
+	app, err := chaos.New(workerCtx, db, logger, metrics)
+	if err != nil {
+		return fmt.Errorf("initialize Chaos: %w", err)
 	}
 
 	if !config.IsDebug() {
 		gin.SetMode(gin.ReleaseMode)
 	}
-
-	r := gin.Default()
-	r.RedirectTrailingSlash = false
-
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok"})
+	router := gin.New()
+	router.RedirectTrailingSlash = false
+	router.Use(gin.CustomRecovery(func(c *gin.Context, recovered any) {
+		logger.ErrorContext(c.Request.Context(), "HTTP handler panic", "panic_type", fmt.Sprintf("%T", recovered))
+		c.AbortWithStatus(http.StatusInternalServerError)
+	}))
+	router.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
+	router.GET("/metrics", gin.WrapH(metrics.Handler()))
+	app.Handler().RegisterRoutes(router)
 
-	app.Handler().RegisterRoutes(r)
-
-	addr := fmt.Sprintf(":%d", config.GetServerPort())
-	logger.Infof("chaos 服务启动: %s", addr)
-	if err := r.Run(addr); err != nil {
-		logger.Fatalf("服务启动失败: %v", err)
+	server := &http.Server{
+		Addr:              fmt.Sprintf(":%d", config.GetServerPort()),
+		Handler:           router,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
+	serverErrors := make(chan error, 1)
+	go func() {
+		logger.Info("chaos started", "address", server.Addr)
+		serverErrors <- server.ListenAndServe()
+	}()
+
+	signalCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	var serveErr error
+	select {
+	case <-signalCtx.Done():
+		logger.Info("chaos shutdown requested")
+	case err := <-serverErrors:
+		if !errors.Is(err, http.ErrServerClosed) {
+			serveErr = fmt.Errorf("serve HTTP: %w", err)
+		}
+	}
+
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancelShutdown()
+	shutdownErrors := []error{serveErr}
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		shutdownErrors = append(shutdownErrors, fmt.Errorf("shutdown HTTP server: %w", err))
+	}
+	if err := app.Close(shutdownCtx); err != nil {
+		shutdownErrors = append(shutdownErrors, err)
+	}
+	cancelWorkers()
+	return errors.Join(shutdownErrors...)
 }
 
-func initTokenManager() {
+func initTokenManager() error {
 	seed, err := chaosconfig.GetAegisSecretKeyBytes()
 	if err != nil {
-		logger.Fatalf("初始化 Chaos token manager 失败: %v", err)
+		return fmt.Errorf("initialize Chaos token manager: %w", err)
 	}
 	if err := guard.NewServiceTokenManager(chaosconfig.GetAegisIssuer(), chaosconfig.GetAegisAudience(), seed); err != nil {
-		logger.Fatalf("初始化 Chaos token manager 失败: %v", err)
+		return fmt.Errorf("initialize Chaos token manager: %w", err)
 	}
+	return nil
 }
