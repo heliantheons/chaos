@@ -4,19 +4,14 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
-	"sync"
 
 	"gorm.io/gorm"
 
 	baseconfig "github.com/heliantheon/common/config"
 	pkgdb "github.com/heliantheon/common/database"
-	"github.com/heliantheon/common/logger"
-)
-
-var (
-	chaosDB     *gorm.DB
-	chaosDBOnce sync.Once
+	commonlog "github.com/heliantheon/common/log"
 )
 
 // Cfg 返回 Chaos 配置单例
@@ -31,10 +26,15 @@ func Validate() error {
 		"db.url", "aegis.audience", "aegis.issuer", "aegis.secret-key",
 		"smtp.host", "smtp.port", "smtp.username", "smtp.password", "smtp.from",
 		"r2.account-id", "r2.access-key-id", "r2.access-key-secret", "r2.bucket", "r2.domain",
+		"nats.token", "nats.stream", "nats.subject", "nats.consumer", "nats.dlq-subject",
+		"loki.url", "loki.namespace",
 	} {
 		if strings.TrimSpace(Cfg().GetString(key)) == "" {
 			errs = append(errs, fmt.Errorf("必需配置 %s 未设置", key))
 		}
+	}
+	if len(GetNATSURLs()) == 0 {
+		errs = append(errs, fmt.Errorf("必需配置 nats.urls 未设置"))
 	}
 	if _, err := GetAegisSecretKeyBytes(); err != nil {
 		errs = append(errs, err)
@@ -114,6 +114,32 @@ func GetSMTPFromName() string {
 	return name
 }
 
+// GetNATSURLs returns the NATS cluster endpoints used by common/eventbus.
+func GetNATSURLs() []string { return Cfg().GetStringSlice("nats.urls") }
+
+// GetNATSToken returns the service token used for NATS authentication.
+func GetNATSToken() string { return Cfg().GetString("nats.token") }
+
+// GetNATSStream returns the JetStream stream containing Chaos mail events.
+func GetNATSStream() string { return Cfg().GetString("nats.stream") }
+
+// GetNATSSubject returns the subject used for new mail delivery events.
+func GetNATSSubject() string { return Cfg().GetString("nats.subject") }
+
+// GetNATSConsumer returns the durable Chaos mail worker name.
+func GetNATSConsumer() string { return Cfg().GetString("nats.consumer") }
+
+// GetNATSDLQSubject returns the sanitized dead-letter subject.
+func GetNATSDLQSubject() string { return Cfg().GetString("nats.dlq-subject") }
+
+// GetLokiURL returns the cluster-internal Loki gateway used by the controlled
+// Chaos log-query proxy. It is never exposed to browser clients.
+func GetLokiURL() string { return Cfg().GetString("loki.url") }
+
+// GetLokiNamespace returns the Kubernetes namespace visible through the
+// controlled Chaos log-query proxy.
+func GetLokiNamespace() string { return Cfg().GetString("loki.namespace") }
+
 // GetCloudflareR2AccessKeyID 获取 R2 Access Key ID
 func GetCloudflareR2AccessKeyID() string {
 	return Cfg().GetString("r2.access-key-id")
@@ -143,18 +169,13 @@ func GetCloudflareR2PublicURL() string {
 	return Cfg().GetString("r2.domain")
 }
 
-// InitDB 初始化 Chaos 数据库连接（单例）
-func InitDB() *gorm.DB {
-	chaosDBOnce.Do(func() {
-		cfg := Cfg()
-		dsn := cfg.GetString("db.url")
-
-		db, err := pkgdb.Connect(dsn, pkgdb.WithLogWriter(logger.GormWriter()))
-		if err != nil {
-			logger.Fatalf("连接 Chaos 数据库失败: %v", err)
-		}
-		logger.Infof("数据库连接成功 (chaos)")
-		chaosDB = db
-	})
-	return chaosDB
+// InitDB initializes the Chaos database connection.
+func InitDB(logger *slog.Logger) (*gorm.DB, error) {
+	dsn := Cfg().GetString("db.url")
+	db, err := pkgdb.Connect(dsn, pkgdb.WithLogWriter(commonlog.GormWriter(logger)))
+	if err != nil {
+		return nil, fmt.Errorf("连接 Chaos 数据库失败: %w", err)
+	}
+	logger.Info("数据库连接成功", "database", "chaos")
+	return db, nil
 }
