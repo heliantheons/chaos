@@ -19,6 +19,7 @@ import (
 	"github.com/heliantheon/common/config"
 	commonlog "github.com/heliantheon/common/log"
 	"github.com/heliantheon/common/metric"
+	"github.com/heliantheon/common/observability"
 )
 
 func main() {
@@ -33,6 +34,15 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	shutdownTracing, err := observability.Init(context.Background(), observability.Config{
+		ServiceName:    "chaos",
+		ServiceVersion: config.GetAppVersion(),
+		Environment:    chaosconfig.Cfg().GetString("app.environment"),
+	})
+	if err != nil {
+		logger.Warn("initialize OpenTelemetry tracing", "error", err)
+	}
+	defer shutdownTracing()
 	if err := run(logger); err != nil {
 		logger.Error("chaos stopped", "error", err)
 		os.Exit(1)
@@ -71,6 +81,7 @@ func run(logger *slog.Logger) error {
 	}
 	router := gin.New()
 	router.RedirectTrailingSlash = false
+	router.Use(observability.GinMiddleware("chaos", logger)...)
 	router.Use(gin.CustomRecovery(func(c *gin.Context, recovered any) {
 		logger.ErrorContext(c.Request.Context(), "HTTP handler panic", "panic_type", fmt.Sprintf("%T", recovered))
 		c.AbortWithStatus(http.StatusInternalServerError)

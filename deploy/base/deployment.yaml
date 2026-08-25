@@ -44,6 +44,15 @@ spec:
             - name: http
               containerPort: 18000
               protocol: TCP
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://alloy.observability-system.svc.cluster.local:4317
+            - name: OTEL_TRACES_SAMPLER
+              value: parentbased_traceidratio
+            - name: OTEL_TRACES_SAMPLER_ARG
+              value: "0.25"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: deployment.environment.name=production,k8s.cluster.name=heliantheon-k3s
           envFrom:
             - secretRef:
                 name: chaos-runtime
@@ -94,4 +103,3 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: 64Mi
-
