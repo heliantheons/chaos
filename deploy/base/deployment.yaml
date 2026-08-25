@@ -38,7 +38,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: chaos
-          image: ghcr.io/heliantheon/chaos:unreleased
+          image: ghcr.io/heliantheons/chaos:unreleased
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
