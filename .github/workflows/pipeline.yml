@@ -44,6 +44,6 @@ jobs:
       contents: read
     with:
       version: '${{ needs.ci.outputs.version }}'
-      updates: 'chaos/overlay/release.yaml=ghcr.io/heliantheon/chaos'
+      updates: 'chaos/overlay/release.yaml=ghcr.io/heliantheons/chaos'
     secrets:
       gitops_token: '${{ secrets.GITOPS_TOKEN }}'

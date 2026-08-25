@@ -8,5 +8,5 @@ environment credentials or a promoted release version.
 - `ingress/` owns the Chaos `/api` route.
 
 Production release state and SOPS-encrypted values belong to the private
-`heliantheon/applications` repository. CI may update only its `overlay/`.
+`heliantheons/applications` repository. CI may update only its `overlay/`.
 
