@@ -26,8 +26,6 @@ spec:
     spec:
       serviceAccountName: chaos
       automountServiceAccountToken: false
-      imagePullSecrets:
-        - name: ghcr-pull
       terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
