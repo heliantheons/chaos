@@ -7,6 +7,8 @@ This repository owns the Helios delivery and object-storage service.
 - Reusable mail client primitives belong to `heliantheon/common`; templates and delivery policy stay here.
 - Reusable authentication guards belong to `heliantheon/aegis-go`.
 - Keep storage-provider details behind the service layer.
+- Kubernetes desired state belongs to the private `heliantheons/applications`
+  repository. This public repository owns the image, not deployment manifests.
 
 ## Commands
 
