@@ -110,7 +110,7 @@ func (p *Publisher) Enqueue(ctx context.Context, idempotencyKey string, req Send
 	}
 	if err := p.bus.Publish(ctx, event); err != nil {
 		if storeErr := p.store.MarkRetryable(ctx, keyHash, delivery.DeliveryID); storeErr != nil {
-			return "", fmt.Errorf("queue mail delivery: %w; mark retryable: %v", err, storeErr)
+			return "", fmt.Errorf("queue mail delivery: %w; mark retryable: %w", err, storeErr)
 		}
 		return "", fmt.Errorf("queue mail delivery: %w", err)
 	}

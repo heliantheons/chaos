@@ -37,7 +37,7 @@ func (s stubMailTemplateValidator) Validate(_ context.Context, _ string, _ map[s
 
 func TestDecodeMailRequestRejectsUnknownFields(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	request := httptest.NewRequest("POST", "/api/mail", strings.NewReader(`{
+	request := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mail", strings.NewReader(`{
 		"to":"user@example.com",
 		"template_id":"otp_login",
 		"unexpected":true
@@ -54,7 +54,7 @@ func TestDecodeMailRequestRejectsUnknownFields(t *testing.T) {
 
 func TestDecodeMailRequestRejectsTrailingJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	request := httptest.NewRequest("POST", "/api/mail", strings.NewReader(`{"to":"user@example.com","template_id":"otp_login"} {}`))
+	request := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mail", strings.NewReader(`{"to":"user@example.com","template_id":"otp_login"} {}`))
 	response := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(response)
 	context.Request = request
@@ -69,7 +69,7 @@ func TestSendMailReturnsAcceptedDelivery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	enqueuer := &stubMailEnqueuer{deliveryID: "5dd253af-178b-480d-a1dc-ab42cc5e4d6d"}
 	handler := &Handler{mailPublisher: enqueuer, mailValidator: stubMailTemplateValidator{}}
-	request := httptest.NewRequest("POST", "/api/mail", strings.NewReader(`{"to":"user@example.com","template_id":"otp_login"}`))
+	request := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mail", strings.NewReader(`{"to":"user@example.com","template_id":"otp_login"}`))
 	request.Header.Set("Idempotency-Key", "challenge-123")
 	response := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(response)
@@ -91,7 +91,7 @@ func TestSendMailReturnsAcceptedDelivery(t *testing.T) {
 func TestSendMailMapsIdempotencyConflict(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler := &Handler{mailPublisher: &stubMailEnqueuer{err: mail.ErrIdempotencyConflict}, mailValidator: stubMailTemplateValidator{}}
-	request := httptest.NewRequest("POST", "/api/mail", strings.NewReader(`{"to":"user@example.com","template_id":"otp_login"}`))
+	request := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mail", strings.NewReader(`{"to":"user@example.com","template_id":"otp_login"}`))
 	request.Header.Set("Idempotency-Key", "challenge-123")
 	response := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(response)
@@ -125,7 +125,7 @@ func TestRequireServiceAccess(t *testing.T) {
 				c.Next()
 			})
 			router.POST("/api/mail", requireServiceAccess(), func(c *gin.Context) { c.Status(http.StatusNoContent) })
-			request := httptest.NewRequest("POST", "/api/mail", nil)
+			request := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mail", nil)
 			response := httptest.NewRecorder()
 
 			router.ServeHTTP(response, request)
@@ -140,7 +140,7 @@ func TestRequireServiceAccess(t *testing.T) {
 func TestSendMailMapsQueueFailure(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler := &Handler{mailPublisher: &stubMailEnqueuer{err: errors.New("broker unavailable")}, mailValidator: stubMailTemplateValidator{}}
-	request := httptest.NewRequest("POST", "/api/mail", strings.NewReader(`{"to":"user@example.com","template_id":"otp_login"}`))
+	request := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mail", strings.NewReader(`{"to":"user@example.com","template_id":"otp_login"}`))
 	request.Header.Set("Idempotency-Key", "challenge-123")
 	response := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(response)
@@ -160,7 +160,7 @@ func TestSendMailRejectsUnknownTemplateBeforeEnqueue(t *testing.T) {
 		mailPublisher: enqueuer,
 		mailValidator: stubMailTemplateValidator{err: mailtemplate.ErrNotFound},
 	}
-	request := httptest.NewRequest("POST", "/api/mail", strings.NewReader(`{"to":"user@example.com","template_id":"missing"}`))
+	request := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mail", strings.NewReader(`{"to":"user@example.com","template_id":"missing"}`))
 	request.Header.Set("Idempotency-Key", "challenge-123")
 	response := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(response)
@@ -183,7 +183,7 @@ func TestSendMailRejectsTemplateDataMismatchBeforeEnqueue(t *testing.T) {
 		mailPublisher: enqueuer,
 		mailValidator: stubMailTemplateValidator{err: mailtemplate.ErrDataMismatch},
 	}
-	request := httptest.NewRequest("POST", "/api/mail", strings.NewReader(`{"to":"user@example.com","template_id":"otp_login","variables":{}}`))
+	request := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mail", strings.NewReader(`{"to":"user@example.com","template_id":"otp_login","variables":{}}`))
 	request.Header.Set("Idempotency-Key", "challenge-123")
 	response := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(response)

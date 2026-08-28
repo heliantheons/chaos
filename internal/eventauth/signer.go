@@ -104,13 +104,37 @@ func (s *Signer) Verify(raw []byte, identity EventIdentity, target any) error {
 		return fmt.Errorf("eventauth: decode target is nil")
 	}
 
+	envelope, err := decodeSignedPayload(raw)
+	if err != nil {
+		return err
+	}
+	if err := validateEnvelopeIdentity(envelope, identity); err != nil {
+		return err
+	}
+	if err := s.verifySignature(envelope); err != nil {
+		return err
+	}
+	if err := decodeStrict(envelope.Data, target); err != nil {
+		return fmt.Errorf("eventauth: decode verified data: %w", err)
+	}
+	return nil
+}
+
+func decodeSignedPayload(raw []byte) (SignedPayload, error) {
 	var envelope SignedPayload
 	if err := decodeStrict(raw, &envelope); err != nil {
-		return fmt.Errorf("eventauth: decode signed payload: %w", err)
+		return SignedPayload{}, fmt.Errorf("eventauth: decode signed payload: %w", err)
 	}
 	if envelope.Algorithm != algorithm {
-		return fmt.Errorf("eventauth: unsupported algorithm %q", envelope.Algorithm)
+		return SignedPayload{}, fmt.Errorf("eventauth: unsupported algorithm %q", envelope.Algorithm)
 	}
+	if len(envelope.Data) == 0 {
+		return SignedPayload{}, fmt.Errorf("eventauth: payload data is empty")
+	}
+	return envelope, nil
+}
+
+func validateEnvelopeIdentity(envelope SignedPayload, identity EventIdentity) error {
 	if err := validateIdentity(identity); err != nil {
 		return err
 	}
@@ -120,23 +144,22 @@ func (s *Signer) Verify(raw []byte, identity EventIdentity, target any) error {
 		envelope.EventSubject != identity.Subject {
 		return fmt.Errorf("eventauth: signed event identity mismatch")
 	}
-	if len(envelope.Data) == 0 {
-		return fmt.Errorf("eventauth: payload data is empty")
-	}
+	return nil
+}
 
+func (s *Signer) verifySignature(envelope SignedPayload) error {
 	signature, err := base64.RawURLEncoding.DecodeString(envelope.Signature)
 	if err != nil {
 		return fmt.Errorf("eventauth: decode signature: %w", err)
 	}
-	content := signedContent{
+	want, err := s.signContent(signedContent{
 		Algorithm:    envelope.Algorithm,
 		EventID:      envelope.EventID,
 		EventType:    envelope.EventType,
 		EventSource:  envelope.EventSource,
 		EventSubject: envelope.EventSubject,
 		Data:         envelope.Data,
-	}
-	want, err := s.signContent(content)
+	})
 	if err != nil {
 		return err
 	}
@@ -146,10 +169,6 @@ func (s *Signer) Verify(raw []byte, identity EventIdentity, target any) error {
 	}
 	if !hmac.Equal(signature, wantSignature) {
 		return fmt.Errorf("eventauth: signature mismatch")
-	}
-
-	if err := decodeStrict(envelope.Data, target); err != nil {
-		return fmt.Errorf("eventauth: decode verified data: %w", err)
 	}
 	return nil
 }

@@ -26,7 +26,11 @@ func NewPublisher(target string) (*Publisher, error) {
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return nil, fmt.Errorf("eventing: broker URL must be an absolute HTTP URL")
 	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	baseTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, fmt.Errorf("eventing: default HTTP transport has an unexpected type")
+	}
+	transport := baseTransport.Clone()
 	transport.DialContext = (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext
 	transport.ResponseHeaderTimeout = 10 * time.Second
 	return &Publisher{
@@ -52,7 +56,9 @@ func (p *Publisher) Publish(ctx context.Context, event cloudevents.Event) error 
 		return fmt.Errorf("eventing: publish CloudEvent: %w", err)
 	}
 	defer response.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseBytes))
+	if _, err := io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseBytes)); err != nil {
+		return fmt.Errorf("eventing: read Broker response: %w", err)
+	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return fmt.Errorf("eventing: broker returned HTTP %d", response.StatusCode)
 	}

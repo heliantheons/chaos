@@ -162,23 +162,23 @@ func (s *Service) Validate(ctx context.Context, templateID string, data map[stri
 func (s *Service) render(ctx context.Context, tpl *models.EmailTemplate, data map[string]any) (subject string, body string, err error) {
 	parsedTpl, err := s.getOrParseTemplate(tpl)
 	if err != nil {
-		return "", "", fmt.Errorf("%w: body: %v", ErrInvalid, err)
+		return "", "", fmt.Errorf("%w: body: %w", ErrInvalid, err)
 	}
 
 	var buf bytes.Buffer
 	if err := parsedTpl.Execute(&buf, data); err != nil {
-		return "", "", fmt.Errorf("%w: body: %v", ErrDataMismatch, err)
+		return "", "", fmt.Errorf("%w: body: %w", ErrDataMismatch, err)
 	}
 
 	subjectTpl, err := template.New("subject").Option("missingkey=error").Parse(tpl.Subject)
 	if err != nil {
-		return "", "", fmt.Errorf("%w: subject: %v", ErrInvalid, err)
+		return "", "", fmt.Errorf("%w: subject: %w", ErrInvalid, err)
 	}
 
 	var subjectBuf bytes.Buffer
 	if err := subjectTpl.Execute(&subjectBuf, data); err != nil {
 		s.logger.WarnContext(ctx, "template subject render failed", "template_id", tpl.TemplateID, "error", err)
-		return "", "", fmt.Errorf("%w: subject: %v", ErrDataMismatch, err)
+		return "", "", fmt.Errorf("%w: subject: %w", ErrDataMismatch, err)
 	}
 	renderedSubject := subjectBuf.String()
 	if renderedSubject == "" || len(renderedSubject) > 998 || strings.ContainsAny(renderedSubject, "\r\n") {
