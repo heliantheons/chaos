@@ -28,13 +28,10 @@ password = ""
 from = ""
 from-name = "Helios"
 
-[nats]
-urls = ["nats://127.0.0.1:4222"]
-token = ""
-stream = "CHAOS_MAIL"
-subject = "events.chaos.mail.delivery.requested.v1"
-consumer = "chaos-mail-worker-v1"
-dlq-subject = "dlq.chaos.mail.delivery.v1"
+[eventing]
+broker-url = "http://events.heliannuuthus.com/v1/events"
+mail-event-type = "com.heliantheon.chaos.mail.delivery.requested.v1"
+mail-event-source = "urn:heliantheon:chaos:mail"
 
 [loki]
 url = "http://loki-gateway.observability.svc.cluster.local"
