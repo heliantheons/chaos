@@ -4,30 +4,36 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
-	"github.com/google/uuid"
+	cloudevents "github.com/cloudevents/sdk-go/v2"
 
 	"github.com/heliantheon/chaos/config"
+	"github.com/heliantheon/chaos/internal/eventauth"
 	"github.com/heliantheon/chaos/internal/template"
-	"github.com/heliantheon/common/eventbus"
 	pkgmail "github.com/heliantheon/common/mail"
 )
 
-// Service queues mail requests and performs SMTP delivery in the worker.
+// Service verifies private mail events and performs SMTP delivery.
 type Service struct {
 	client          *pkgmail.Client
 	templateService *template.Service
-	bus             *eventbus.Bus
+	signer          *eventauth.Signer
 	logger          *slog.Logger
 	from            string
 	fromName        string
+	eventType       string
+	eventSource     string
 }
 
 // NewService creates the Chaos-owned mail service.
-func NewService(templateService *template.Service, bus *eventbus.Bus, logger *slog.Logger) (*Service, error) {
-	if templateService == nil || bus == nil || logger == nil {
-		return nil, fmt.Errorf("mail: template service, event bus, and logger are required")
+func NewService(templateService *template.Service, signer *eventauth.Signer, eventType, eventSource string, logger *slog.Logger) (*Service, error) {
+	if templateService == nil || signer == nil || logger == nil {
+		return nil, fmt.Errorf("mail: template service, event signer, and logger are required")
+	}
+	if strings.TrimSpace(eventType) == "" || strings.TrimSpace(eventSource) == "" {
+		return nil, fmt.Errorf("mail: event type and source are required")
 	}
 	client, err := pkgmail.NewClient(&pkgmail.ClientConfig{
 		Host:     config.GetSMTPHost(),
@@ -43,59 +49,40 @@ func NewService(templateService *template.Service, bus *eventbus.Bus, logger *sl
 	return &Service{
 		client:          client,
 		templateService: templateService,
-		bus:             bus,
+		signer:          signer,
 		logger:          logger,
 		from:            config.GetSMTPFrom(),
 		fromName:        config.GetSMTPFromName(),
+		eventType:       eventType,
+		eventSource:     eventSource,
 	}, nil
 }
 
-// Enqueue publishes a private Chaos mail event and waits for JetStream PubAck.
-func (s *Service) Enqueue(ctx context.Context, req SendRequest) (string, error) {
-	deliveryID := uuid.NewString()
-	variables := req.Variables
-	if variables == nil {
-		variables = req.Data
+// HandleEvent authenticates, validates, and delivers one private mail event.
+func (s *Service) HandleEvent(ctx context.Context, event cloudevents.Event) error {
+	if event.SpecVersion() != cloudevents.VersionV1 {
+		return fmt.Errorf("unsupported CloudEvent specversion %q", event.SpecVersion())
 	}
-	expiresAt := req.ExpiresAt
-	if expiresAt.IsZero() {
-		expiresAt = time.Now().Add(24 * time.Hour)
+	if err := event.Validate(); err != nil {
+		return fmt.Errorf("invalid CloudEvent: %w", err)
 	}
-	event := deliveryRequested{
-		DeliveryID: deliveryID,
-		To:         req.To,
-		Subject:    req.Subject,
-		TemplateID: req.TemplateID,
-		Variables:  variables,
-		ExpiresAt:  expiresAt.UTC(),
+	if event.Type() != s.eventType || event.Source() != s.eventSource {
+		return fmt.Errorf("unexpected CloudEvent route")
 	}
-	if _, err := s.bus.Publish(ctx, config.GetNATSSubject(), eventbus.Event{
-		ID:      deliveryID,
-		Type:    deliveryRequestedEventType,
-		Subject: deliveryID,
-		Data:    event,
-	}); err != nil {
-		return "", fmt.Errorf("queue mail delivery: %w", err)
-	}
-
-	s.logger.InfoContext(ctx, "mail delivery queued",
-		"delivery_id", deliveryID,
-		"template_id", req.TemplateID,
-	)
-	return deliveryID, nil
-}
-
-// HandleEvent decodes and delivers one private Chaos mail event.
-func (s *Service) HandleEvent(ctx context.Context, message eventbus.Message) error {
-	if message.Type != deliveryRequestedEventType {
-		return eventbus.Permanent(fmt.Errorf("unsupported event type %q", message.Type))
+	if event.DataContentType() != cloudevents.ApplicationJSON {
+		return fmt.Errorf("unsupported CloudEvent datacontenttype %q", event.DataContentType())
 	}
 	var delivery deliveryRequested
-	if err := message.Decode(&delivery); err != nil {
-		return eventbus.Permanent(err)
+	if err := s.signer.Verify(event.Data(), eventauth.EventIdentity{
+		ID:      event.ID(),
+		Type:    event.Type(),
+		Source:  event.Source(),
+		Subject: event.Subject(),
+	}, &delivery); err != nil {
+		return err
 	}
-	if delivery.DeliveryID == "" || delivery.To == "" || delivery.TemplateID == "" || delivery.ExpiresAt.IsZero() {
-		return eventbus.Permanent(fmt.Errorf("invalid mail delivery event"))
+	if err := validateDelivery(event, delivery); err != nil {
+		return err
 	}
 	if !time.Now().Before(delivery.ExpiresAt) {
 		s.logger.WarnContext(ctx, "mail delivery expired",

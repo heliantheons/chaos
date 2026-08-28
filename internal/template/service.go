@@ -3,14 +3,23 @@ package template
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"html/template"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"gorm.io/gorm"
 
 	"github.com/heliantheon/chaos/internal/models"
+)
+
+var (
+	ErrNotFound     = errors.New("email template not found")
+	ErrDisabled     = errors.New("email template is disabled")
+	ErrInvalid      = errors.New("email template is invalid")
+	ErrDataMismatch = errors.New("email template data does not match")
 )
 
 // Service 模板服务
@@ -56,6 +65,9 @@ func (s *Service) Get(ctx context.Context, templateID string) (*models.EmailTemp
 	if err := s.db.WithContext(ctx).
 		Where("template_id = ? AND deleted_at IS NULL", templateID).
 		First(&tpl).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("%w: %s", ErrNotFound, templateID)
+		}
 		return nil, fmt.Errorf("获取模板失败: %w", err)
 	}
 	return &tpl, nil
@@ -134,31 +146,45 @@ func (s *Service) Render(ctx context.Context, templateID string, data map[string
 	}
 
 	if !tpl.IsEnabled {
-		return "", "", fmt.Errorf("模板已禁用: %s", templateID)
+		return "", "", fmt.Errorf("%w: %s", ErrDisabled, templateID)
 	}
+	return s.render(ctx, tpl, data)
+}
 
+// Validate confirms that a template exists, is enabled, and can render with
+// the supplied variables. It deliberately performs the same render path used
+// by SMTP delivery so API acceptance cannot diverge from the consumer.
+func (s *Service) Validate(ctx context.Context, templateID string, data map[string]any) error {
+	_, _, err := s.Render(ctx, templateID, data)
+	return err
+}
+
+func (s *Service) render(ctx context.Context, tpl *models.EmailTemplate, data map[string]any) (subject string, body string, err error) {
 	parsedTpl, err := s.getOrParseTemplate(tpl)
 	if err != nil {
-		return "", "", fmt.Errorf("解析模板失败: %w", err)
+		return "", "", fmt.Errorf("%w: body: %v", ErrInvalid, err)
 	}
 
 	var buf bytes.Buffer
 	if err := parsedTpl.Execute(&buf, data); err != nil {
-		return "", "", fmt.Errorf("渲染模板失败: %w", err)
+		return "", "", fmt.Errorf("%w: body: %v", ErrDataMismatch, err)
 	}
 
-	subjectTpl, err := template.New("subject").Parse(tpl.Subject)
+	subjectTpl, err := template.New("subject").Option("missingkey=error").Parse(tpl.Subject)
 	if err != nil {
-		return tpl.Subject, buf.String(), nil
+		return "", "", fmt.Errorf("%w: subject: %v", ErrInvalid, err)
 	}
 
 	var subjectBuf bytes.Buffer
 	if err := subjectTpl.Execute(&subjectBuf, data); err != nil {
-		s.logger.WarnContext(ctx, "template subject render failed", "template_id", templateID, "error", err)
-		return tpl.Subject, buf.String(), nil
+		s.logger.WarnContext(ctx, "template subject render failed", "template_id", tpl.TemplateID, "error", err)
+		return "", "", fmt.Errorf("%w: subject: %v", ErrDataMismatch, err)
 	}
-
-	return subjectBuf.String(), buf.String(), nil
+	renderedSubject := subjectBuf.String()
+	if renderedSubject == "" || len(renderedSubject) > 998 || strings.ContainsAny(renderedSubject, "\r\n") {
+		return "", "", fmt.Errorf("%w: rendered subject is empty, too long, or contains a line break", ErrInvalid)
+	}
+	return renderedSubject, buf.String(), nil
 }
 
 // getOrParseTemplate 获取或解析模板
@@ -171,7 +197,7 @@ func (s *Service) getOrParseTemplate(tpl *models.EmailTemplate) (*template.Templ
 		return t, nil
 	}
 
-	parsed, err := template.New(tpl.TemplateID).Parse(tpl.Content)
+	parsed, err := template.New(tpl.TemplateID).Option("missingkey=error").Parse(tpl.Content)
 	if err != nil {
 		return nil, err
 	}
