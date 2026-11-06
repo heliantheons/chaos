@@ -1,18 +1,23 @@
 package chaos
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
 
+	cloudevents "github.com/cloudevents/sdk-go/v2"
 	"github.com/gin-gonic/gin"
 
 	"github.com/heliantheon/aegis-go/guard"
 	reqr "github.com/heliantheon/aegis-go/guard/requirement"
 	"github.com/heliantheon/aegis-go/utilities/relation"
+	tokendef "github.com/heliantheon/aegis-go/utilities/token"
 	"github.com/heliantheon/chaos/internal/logquery"
 	"github.com/heliantheon/chaos/internal/mail"
 	"github.com/heliantheon/chaos/internal/models"
@@ -24,24 +29,65 @@ import (
 type Handler struct {
 	guard           *guard.Gin
 	audience        string
-	mailService     *mail.Service
+	mailPublisher   mailEnqueuer
+	mailValidator   mailTemplateValidator
+	mailService     mailEventConsumer
 	templateService *template.Service
 	storageService  *storage.Service
 	logService      *logquery.Service
 	logger          *slog.Logger
 }
 
+type mailEnqueuer interface {
+	Enqueue(context.Context, string, mail.SendRequest) (string, error)
+}
+
+type mailTemplateValidator interface {
+	Validate(context.Context, string, map[string]any) error
+}
+
+type mailEventConsumer interface {
+	HandleEvent(context.Context, cloudevents.Event) error
+}
+
 // NewHandler 创建 Handler
-func NewHandler(g *guard.Gin, audience string, mailSvc *mail.Service, templateSvc *template.Service, storageSvc *storage.Service, logSvc *logquery.Service, logger *slog.Logger) *Handler {
+func NewHandler(g *guard.Gin, audience string, mailPublisher mailEnqueuer, mailSvc *mail.Service, templateSvc *template.Service, storageSvc *storage.Service, logSvc *logquery.Service, logger *slog.Logger) *Handler {
 	return &Handler{
 		guard:           g,
 		audience:        audience,
+		mailPublisher:   mailPublisher,
+		mailValidator:   templateSvc,
 		mailService:     mailSvc,
 		templateService: templateSvc,
 		storageService:  storageSvc,
 		logService:      logSvc,
 		logger:          logger,
 	}
+}
+
+// ConsumeMailEvent receives deliveries from the Knative Trigger. The endpoint
+// intentionally has no HTTP authentication: event identity and payload are
+// authenticated by the Chaos-owned HMAC envelope before SMTP is touched.
+func (h *Handler) ConsumeMailEvent(c *gin.Context) {
+	const maxCloudEventBytes = 96 * 1024
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxCloudEventBytes)
+	event, err := cloudevents.NewEventFromHTTPRequest(c.Request)
+	if err != nil {
+		h.logger.WarnContext(c.Request.Context(), "reject invalid mail CloudEvent", "error", err)
+		c.Status(http.StatusBadRequest)
+		return
+	}
+	if err := h.mailService.HandleEvent(c.Request.Context(), *event); err != nil {
+		h.logger.WarnContext(c.Request.Context(), "mail CloudEvent delivery failed",
+			"event_id", event.ID(),
+			"event_type", event.Type(),
+			"error", err,
+		)
+		// Knative retries every non-2xx response according to Trigger delivery.
+		c.Status(http.StatusServiceUnavailable)
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 // QueryLogs returns a bounded historical log page. The client cannot provide
@@ -114,23 +160,144 @@ func (h *Handler) StreamLogs(c *gin.Context) {
 // SendMail 发送邮件 POST /api/mail
 func (h *Handler) SendMail(c *gin.Context) {
 	var req mail.SendRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	deliveryID, err := h.mailService.Enqueue(c.Request.Context(), req)
-	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
+	if err := decodeMailRequest(c, &req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
-				"code":    "MAIL_QUEUE_UNAVAILABLE",
-				"message": "邮件队列暂时不可用",
+				"code":    "INVALID_MAIL_REQUEST",
+				"message": "邮件请求参数无效",
 			},
 		})
 		return
 	}
+	templateData, err := req.TemplateData()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": gin.H{
+				"code":    "INVALID_MAIL_REQUEST",
+				"message": "邮件请求参数无效",
+			},
+		})
+		return
+	}
+	if err := h.mailValidator.Validate(c.Request.Context(), req.TemplateID, templateData); err != nil {
+		writeMailTemplateError(c, err)
+		return
+	}
 
-	c.JSON(http.StatusAccepted, mail.SendResponse{DeliveryID: deliveryID})
+	deliveryID, err := h.mailPublisher.Enqueue(c.Request.Context(), c.GetHeader("Idempotency-Key"), req)
+	if err != nil {
+		switch {
+		case errors.Is(err, mail.ErrInvalidRequest):
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": gin.H{
+					"code":    "INVALID_MAIL_REQUEST",
+					"message": "邮件请求参数无效",
+				},
+			})
+			return
+		case errors.Is(err, mail.ErrIdempotencyConflict):
+			c.JSON(http.StatusUnprocessableEntity, gin.H{
+				"error": gin.H{
+					"code":    "IDEMPOTENCY_KEY_REUSED",
+					"message": "幂等键已用于不同的邮件请求",
+				},
+			})
+			return
+		case errors.Is(err, mail.ErrIdempotencyInProgress):
+			c.Header("Retry-After", "1")
+			c.JSON(http.StatusConflict, gin.H{
+				"error": gin.H{
+					"code":    "MAIL_REQUEST_IN_PROGRESS",
+					"message": "相同邮件请求正在处理中",
+				},
+			})
+			return
+		default:
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error": gin.H{
+					"code":    "MAIL_QUEUE_UNAVAILABLE",
+					"message": "邮件队列暂时不可用",
+				},
+			})
+			return
+		}
+	}
+
+	c.JSON(http.StatusAccepted, mail.SendResponse{OK: true, DeliveryID: deliveryID})
+}
+
+func writeMailTemplateError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, template.ErrNotFound):
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": gin.H{
+				"code":    "MAIL_TEMPLATE_NOT_FOUND",
+				"message": "邮件模板不存在",
+			},
+		})
+	case errors.Is(err, template.ErrDisabled):
+		c.JSON(http.StatusConflict, gin.H{
+			"error": gin.H{
+				"code":    "MAIL_TEMPLATE_DISABLED",
+				"message": "邮件模板已禁用",
+			},
+		})
+	case errors.Is(err, template.ErrInvalid):
+		c.JSON(http.StatusUnprocessableEntity, gin.H{
+			"error": gin.H{
+				"code":    "MAIL_TEMPLATE_INVALID",
+				"message": "邮件模板无效",
+			},
+		})
+	case errors.Is(err, template.ErrDataMismatch):
+		c.JSON(http.StatusUnprocessableEntity, gin.H{
+			"error": gin.H{
+				"code":    "MAIL_TEMPLATE_DATA_MISMATCH",
+				"message": "邮件变量与模板不匹配",
+			},
+		})
+	default:
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": gin.H{
+				"code":    "MAIL_TEMPLATE_UNAVAILABLE",
+				"message": "邮件模板暂时不可用",
+			},
+		})
+	}
+}
+
+func decodeMailRequest(c *gin.Context, target *mail.SendRequest) error {
+	const maxMailRequestBytes = 64 * 1024
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxMailRequestBytes)
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("unexpected trailing JSON value")
+		}
+		return err
+	}
+	return nil
+}
+
+func requireServiceAccess() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		accessToken := guard.AccessToken(c.Request.Context())
+		if accessToken == nil || accessToken.Type() != tokendef.TokenTypeSAT {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"error": gin.H{
+					"code":    "SERVICE_ACCESS_REQUIRED",
+					"message": "仅允许服务身份发送邮件",
+				},
+			})
+			return
+		}
+		c.Next()
+	}
 }
 
 // CreateTemplate 创建模板 POST /api/templates
@@ -253,11 +420,12 @@ func (h *Handler) PresignUpload(c *gin.Context) {
 // RegisterRoutes 注册路由
 func (h *Handler) RegisterRoutes(r gin.IRouter) {
 	svc := "service:" + h.audience
+	r.POST("/internal/events/mail-delivery", h.ConsumeMailEvent)
 
 	api := r.Group("/api")
 	api.Use(h.guard.Require())
 	{
-		api.POST("/mail", h.SendMail)
+		api.POST("/mail", requireServiceAccess(), h.SendMail)
 
 		logs := api.Group("/logs")
 		logs.Use(h.guard.Require(reqr.Relation(relation.Qualify("admin", svc))))
@@ -279,11 +447,6 @@ func (h *Handler) RegisterRoutes(r gin.IRouter) {
 
 		api.POST("/presign", h.guard.Require(reqr.User(), reqr.Relation(relation.Qualify("editor", svc))), h.PresignUpload)
 	}
-}
-
-// MailService 获取邮件服务（供 Aegis 等内部调用）
-func (h *Handler) MailService() *mail.Service {
-	return h.mailService
 }
 
 // TemplateService 获取模板服务（供内部调用）

@@ -26,15 +26,12 @@ func Validate() error {
 		"db.url", "aegis.audience", "aegis.issuer", "aegis.secret-key",
 		"smtp.host", "smtp.port", "smtp.username", "smtp.password", "smtp.from",
 		"r2.account-id", "r2.access-key-id", "r2.access-key-secret", "r2.bucket", "r2.domain",
-		"nats.token", "nats.stream", "nats.subject", "nats.consumer", "nats.dlq-subject",
+		"eventing.broker-url", "eventing.mail-event-type", "eventing.mail-event-source",
 		"loki.url", "loki.namespace",
 	} {
 		if strings.TrimSpace(Cfg().GetString(key)) == "" {
 			errs = append(errs, fmt.Errorf("必需配置 %s 未设置", key))
 		}
-	}
-	if len(GetNATSURLs()) == 0 {
-		errs = append(errs, fmt.Errorf("必需配置 nats.urls 未设置"))
 	}
 	if _, err := GetAegisSecretKeyBytes(); err != nil {
 		errs = append(errs, err)
@@ -114,23 +111,14 @@ func GetSMTPFromName() string {
 	return name
 }
 
-// GetNATSURLs returns the NATS cluster endpoints used by common/eventbus.
-func GetNATSURLs() []string { return Cfg().GetStringSlice("nats.urls") }
+// GetEventingBrokerURL returns the fixed Knative Broker ingress URL.
+func GetEventingBrokerURL() string { return Cfg().GetString("eventing.broker-url") }
 
-// GetNATSToken returns the service token used for NATS authentication.
-func GetNATSToken() string { return Cfg().GetString("nats.token") }
+// GetMailEventType returns the CloudEvent type selected by the Knative Trigger.
+func GetMailEventType() string { return Cfg().GetString("eventing.mail-event-type") }
 
-// GetNATSStream returns the JetStream stream containing Chaos mail events.
-func GetNATSStream() string { return Cfg().GetString("nats.stream") }
-
-// GetNATSSubject returns the subject used for new mail delivery events.
-func GetNATSSubject() string { return Cfg().GetString("nats.subject") }
-
-// GetNATSConsumer returns the durable Chaos mail worker name.
-func GetNATSConsumer() string { return Cfg().GetString("nats.consumer") }
-
-// GetNATSDLQSubject returns the sanitized dead-letter subject.
-func GetNATSDLQSubject() string { return Cfg().GetString("nats.dlq-subject") }
+// GetMailEventSource returns the trusted CloudEvent source for Chaos mail events.
+func GetMailEventSource() string { return Cfg().GetString("eventing.mail-event-source") }
 
 // GetLokiURL returns the cluster-internal Loki gateway used by the controlled
 // Chaos log-query proxy. It is never exposed to browser clients.
