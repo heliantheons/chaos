@@ -35,16 +35,3 @@ jobs:
       version: '${{ needs.ci.outputs.version }}'
       targets: 'build/'
       release-tags: true
-
-  promote:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [ci, containerize]
-    uses: heliannuuthus/hephaestus/.github/workflows/ci-promote-gitops.yml@main
-    permissions:
-      contents: read
-    with:
-      version: '${{ needs.ci.outputs.version }}'
-      updates: 'apps/chaos/release.yaml=ghcr.io/heliantheons/chaos'
-      gitops_app_id: '4727462'
-    secrets:
-      gitops_app_private_key: '${{ secrets.GITOPS_APP_PRIVATE_KEY }}'
