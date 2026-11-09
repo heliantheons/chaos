@@ -10,6 +10,9 @@ import (
 
 func TestPublisherSendsCloudEventToBroker(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if got := request.Header.Get("Content-Type"); got != "application/cloudevents+json" {
+			t.Errorf("Content-Type = %q, want application/cloudevents+json", got)
+		}
 		event, err := cloudevents.NewEventFromHTTPRequest(request)
 		if err != nil {
 			t.Errorf("NewEventFromHTTPRequest() error = %v", err)

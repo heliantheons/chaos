@@ -65,6 +65,30 @@ func TestDecodeMailRequestRejectsTrailingJSON(t *testing.T) {
 	}
 }
 
+func TestMailRequestLimitAppliesBeforeGuardBodyParsing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/api/mail", limitMailRequestBody, func(c *gin.Context) {
+		if body := guard.ParseBody(c.Request); body != nil {
+			t.Error("guard.ParseBody() accepted an oversized mail request")
+		}
+		c.Next()
+	}, func(c *gin.Context) {
+		var target mail.SendRequest
+		if err := decodeMailRequest(c, &target); err == nil {
+			t.Error("decodeMailRequest() accepted an oversized mail request")
+		}
+		c.Status(http.StatusBadRequest)
+	})
+	request := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mail", strings.NewReader(`{"variables":{"value":"`+strings.Repeat("x", 64*1024)+`"}}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)
+	}
+}
+
 func TestSendMailReturnsAcceptedDelivery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	enqueuer := &stubMailEnqueuer{deliveryID: "5dd253af-178b-480d-a1dc-ab42cc5e4d6d"}

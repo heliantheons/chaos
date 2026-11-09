@@ -266,6 +266,14 @@ func writeMailTemplateError(c *gin.Context, err error) {
 	}
 }
 
+// limitMailRequestBody bounds reads performed by the authentication middleware
+// as well as the JSON decoder in SendMail.
+func limitMailRequestBody(c *gin.Context) {
+	const maxMailRequestBytes = 64 * 1024
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxMailRequestBytes)
+	c.Next()
+}
+
 func decodeMailRequest(c *gin.Context, target *mail.SendRequest) error {
 	const maxMailRequestBytes = 64 * 1024
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxMailRequestBytes)
@@ -423,10 +431,9 @@ func (h *Handler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/internal/events/mail-delivery", h.ConsumeMailEvent)
 
 	api := r.Group("/api")
+	api.POST("/mail", limitMailRequestBody, h.guard.Require(), requireServiceAccess(), h.SendMail)
 	api.Use(h.guard.Require())
 	{
-		api.POST("/mail", requireServiceAccess(), h.SendMail)
-
 		logs := api.Group("/logs")
 		logs.Use(h.guard.Require(reqr.Relation(relation.Qualify("admin", svc))))
 		{

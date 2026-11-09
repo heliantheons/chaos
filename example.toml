@@ -29,7 +29,7 @@ from = ""
 from-name = "Helios"
 
 [eventing]
-broker-url = "http://events.heliannuuthus.com/v1/events"
+broker-url = "https://events.heliannuuthus.com/v1/events"
 mail-event-type = "com.heliantheon.chaos.mail.delivery.requested.v1"
 mail-event-source = "urn:heliantheon:chaos:mail"
 

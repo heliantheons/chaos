@@ -47,7 +47,8 @@ The accepted fields are:
 | `expires_at` | no | Must be in the next 24 hours; defaults to 24 hours |
 
 Unknown fields, trailing JSON values, and bodies larger than 64 KiB are
-rejected. `data` remains a compatibility alias for `variables`; callers must
+rejected. The body limit also applies to authentication middleware reads.
+`data` remains a compatibility alias for `variables`; callers must
 not send both.
 
 ## Response
@@ -78,8 +79,15 @@ Template validation failures use these responses:
 
 ## Delivery semantics
 
-Chaos signs the private delivery payload and publishes it as a CloudEvent.
-Knative and RabbitMQ provide at-least-once delivery to the internal consumer.
+Chaos signs the private delivery payload and publishes it as a structured
+CloudEvent (`Content-Type: application/cloudevents+json`) to
+`https://events.heliannuuthus.com/v1/events`, with type
+`com.heliantheon.chaos.mail.delivery.requested.v1` and source
+`urn:heliantheon:chaos:mail`. The `eventing/default` Broker routes it through
+Trigger `chaos-mail-delivery` to Service `chaos.heliantheon-system` at
+`/internal/events/mail-delivery`. Configure the HTTPS URL directly: the publisher
+rejects redirects. Knative and RabbitMQ provide at-least-once delivery to the
+internal consumer.
 The API's idempotency record prevents duplicate publication caused by normal
 caller retries; it does not claim exactly-once SMTP delivery across every
 possible process crash.

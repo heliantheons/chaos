@@ -47,7 +47,7 @@ func NewPublisher(target string) (*Publisher, error) {
 // Publish returns only after the Broker ingress acknowledges the HTTP request.
 // RabbitMQ durability and downstream retries are owned by the Broker/Trigger.
 func (p *Publisher) Publish(ctx context.Context, event cloudevents.Event) error {
-	request, err := cloudevents.NewHTTPRequestFromEvent(ctx, p.target, event)
+	request, err := cloudevents.NewHTTPRequestFromEvent(cloudevents.WithEncodingStructured(ctx), p.target, event)
 	if err != nil {
 		return fmt.Errorf("eventing: create CloudEvent request: %w", err)
 	}
